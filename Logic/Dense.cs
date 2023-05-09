@@ -10,7 +10,6 @@ namespace Avalon.DataStructures.Logic
 {
     public static class Dense
     {
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int Get(long[] data, int offset)
         {
@@ -53,7 +52,7 @@ namespace Avalon.DataStructures.Logic
             if (size >= sparse.Length)
             {
                 //
-                Sparse.ResizeSet(ref data, size * 2);
+                Sparse.ResizeSet(ref data, (size + 1) * 2);
 
                 //
                 return Add(ref data, value);
@@ -69,7 +68,6 @@ namespace Avalon.DataStructures.Logic
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int GetLength(long[] data) => (int)data[0];
-
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe int GetLength(int* data) => data[-2];

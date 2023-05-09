@@ -55,7 +55,7 @@ namespace Avalon.DataStructures.Entities
 
                 if (dense_index < _Internal[-2])
                 {
-                    return _Internal[dense_index * 2] == dense_index;
+                    return _Internal[dense_index * 2] == index;
                 }
             }
             return false;
@@ -98,6 +98,23 @@ namespace Avalon.DataStructures.Entities
             long[] set = Sparse.Create(length);
 
             return new SparseSet((int*)Unsafe.AsPointer(ref set[1]), set);
+        }
+
+        public static void Add(ref SparseSet set, int offset)
+        {
+            long[] array = set._Reference;
+
+            Sparse.Add(ref array, offset);
+
+            if (array != set._Reference)
+            {
+                set = new SparseSet((int*)Unsafe.AsPointer(ref array[1]), array);
+            }
+        }
+
+        public static void Remove(ref SparseSet set, int offset)
+        {
+            Sparse.Remove(set._Reference, offset);
         }
 
         public static void Resize(ref SparseSet set, int length)

@@ -36,6 +36,7 @@ namespace Avalon.DataStructures.Logic
             return dense;
         }
 
+
         public static void Remove(long[] data, int offset)
         {
             //
