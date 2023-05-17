@@ -1,125 +1,114 @@
 ﻿using Avalon.DataStructures.Logic;
-using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Avalon.DataStructures.Entities
 {
     public readonly unsafe struct SparseSet
     {
-        public readonly int SparseLength => _Internal[-1];
-        public readonly int DenseLength => _Internal[-2];
+        public readonly int SparseLength => Body[-1];
+        public readonly int DenseLength => Body[-2];
 
         // We keep the address of 
         // the start of the body
         // to allow for high performance
         // in specific scenarios.
         // *** ASSUMES THE ARRAY IS PINNED ***
-        private readonly int* _Internal;
+        public readonly int* Body;
 
         // We stash a reference so
         // the array won't be collected
         // during the lifetime of the
         // set as it's still managed
         // by the GarbageCollector;
-        private readonly long[] _Reference;
+        internal readonly int[] _Reference;
 
-        private SparseSet(int* Internal, long[] Reference)
+        private SparseSet(int* Internal, int[] Reference)
         {
-            this._Internal = Internal;
+            this.Body = Internal;
             this._Reference = Reference;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsWithinSparse(int index)
+        public readonly bool IsWithinSparse(int index)
         {
-            return index < _Internal[-1];
+            return index < Body[-1];
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsWithinDense(int index)
+        public readonly bool IsWithinDense(int index)
         {
-            return index < _Internal[-2];
+            return index < Body[-2];
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Contains(int index)
+        public readonly bool Contains(int index)
         {
-            if (index < _Internal[-1])
+            if (index < Body[-1])
             {
-                int dense_index = _Internal[index * 2 + 1];
+                int dense_index = Body[index * 2 + 1];
 
-                if (dense_index < _Internal[-2])
+                if (dense_index < Body[-2])
                 {
-                    return _Internal[dense_index * 2] == index;
+                    return Body[dense_index * 2] == index;
                 }
             }
             return false;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int GetSparse(int index)
+        public readonly int GetSparse(int index)
         {
-            if (index < _Internal[-1])
+            if (index < Body[-1])
             {
-                return _Internal[index * 2 + 1];
+                return Body[index * 2 + 1];
             }
             throw new IndexOutOfRangeException();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int GetDense(int index)
+        public readonly int GetDense(int index)
         {
-            if (index < _Internal[-2])
+            if (index < Body[-2])
             {
-                return _Internal[index * 2];
+                return Body[index * 2];
             }
             throw new IndexOutOfRangeException();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int GetSparseUnsafe(int index) => _Internal[index * 2 + 1];
+        public readonly int GetSparseUnsafe(int index) => Body[index * 2 + 1];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int GetDenseUnsafe(int index) => _Internal[index * 2];
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public SparseWrap WrapSparse() => new SparseWrap(&_Internal[-2]);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public DenseWrap WrapDense() => new DenseWrap(&_Internal[-2]);
-
+        public readonly int GetDenseUnsafe(int index) => Body[index * 2];
+        
         public static SparseSet Create(int length)
         {
-            long[] set = Sparse.Create(length);
+            int[] set = Sparse.Create(length, true);
 
-            return new SparseSet((int*)Unsafe.AsPointer(ref set[1]), set);
+            return new SparseSet((int*)Unsafe.AsPointer(ref set[2]), set);
         }
 
-        public static void Add(ref SparseSet set, int offset)
+        public static int Add(ref SparseSet set, int offset)
         {
-            long[] array = set._Reference;
+            int[] array = set._Reference;
 
-            Sparse.Add(ref array, offset);
+            int result = Sparse.Add(ref array, offset);
 
             if (array != set._Reference)
             {
-                set = new SparseSet((int*)Unsafe.AsPointer(ref array[1]), array);
+                set = new SparseSet((int*)Unsafe.AsPointer(ref array[2]), array);
             }
+            return result;
         }
 
-        public static void Remove(ref SparseSet set, int offset)
+        public static void Remove(SparseSet set, int offset)
         {
             Sparse.Remove(set._Reference, offset);
         }
 
         public static void Resize(ref SparseSet set, int length)
         {
-            long[] _internal = set._Reference;
+            int[] _internal = set._Reference;
 
             // Resize the array and preserve
             // the pinned aspect of the next array.
@@ -129,7 +118,7 @@ namespace Avalon.DataStructures.Entities
             // array to the header of the
             // buffer while preserving the
             // length of the dense set.
-            _internal[0] = ((long)(length - 1) << 32) + (int)_internal[0];
+            _internal[0] = Sparse.Write(_internal, -1, length - 1);
 
             // Overwrite the original set
             // from the caller with the data.

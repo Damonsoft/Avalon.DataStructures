@@ -3,30 +3,34 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace Avalon.DataStructures.Logic
 {
-    public static partial class Sparse
+    public static unsafe partial class Sparse
     {
-        public static long[] Create(int capacity)
+        public static int[] Create(int capacity, bool pinned)
         {
-            long[] data = GC.AllocateArray<long>(capacity, true);
-            data[0] = (data.LongLength - 1 << 32);
+            int[] data = GC.AllocateArray<int>(capacity, pinned);
+            Sparse.Init(data);
             return data;
         }
 
-        public static void Init(long[] data)
+        public static void Init(Span<int> data)
         {
-            //
-            data[0] = (data.LongLength - 1 << 32);
+            // Write the length of the 
+            // array to the header and 
+            // zero the dense length.
+            data[1] = data.Length;
         }
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int Add(ref long[] data, int offset)
+        public static int Add(ref int[] data, int offset)
         {
             //
             int dense = Dense.Add(ref data, offset);
@@ -36,139 +40,114 @@ namespace Avalon.DataStructures.Logic
             return dense;
         }
 
-
-        public static void Remove(long[] data, int offset)
+        public static void Remove(int[] data, int index)
         {
-            //
-            if (Sparse.Contains(data, offset))
+            if (Sparse.Contains(data, index))
             {
-                //
-                DenseWrap d_w = DenseWrap.Create(data);
-                SparseWrap s_w = SparseWrap.Create(data);
+                int start = Sparse.Get(data, index);
+                int length = Dense.GetLength(data) - start - 1;
 
-                //
-                int d_o = s_w[offset];
-                //
-                int length = d_w.Length - d_o - 1;
-                //
                 for (int i = 0; i < length; i++)
                 {
-                    // 
-                    ref int d_v = ref d_w[d_o + i + 1];
-                    // 
-                    s_w[d_v] = d_o + i;
-                    //
-                    d_w[d_o + i] = d_v;
+                    int next = Dense.Get(data, start + i + 1);
+
+                    Sparse.SetUnsafe(data, next, start + i);
+                    Dense.SetUnsafe(data, start + i, next);
                 }
-                //
-                s_w[offset] = 0;
-                //
-                int old_length = d_w.Length;
-                //
-                d_w[old_length - 1] = 0;
-                //
-                d_w.Length = old_length - 1;
-                //
+                int old_length = Dense.GetLength(data); ;
+
+                Sparse.SetUnsafe(data, index, 0);
+                Dense.SetUnsafe(data, old_length - 1, 0);
+
+                Dense.SetLength(data, old_length - 1);
+
                 return;
             }
-            //
-            throw new Exception($"Sparse and dense sets don't match at offset {offset}");
+            throw new Exception($"Sparse and dense sets don't match at offset {index}");
         }
 
-        public static void RemoveInPlace(long[] data, int offset)
-        {
-            //
-            int sparse = Sparse.Get(data, offset);
-            //
-            int dense = Dense.Get(data, sparse);
 
-            //
-            if (sparse == dense)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int Get(int[] data, int offset)
+        {
+            return data[(offset + 1) * 2 + 1];
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int Write(int[] data, int offset, int value)
+        {
+            return data[(offset + 1) * 2 + 1] = value;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int GetLength(int[] data)
+        {
+            return data[1];
+        }
+
+        public static int Set(ref int[] set, int offset, int value)
+        {
+            if (offset >= GetLength(set))
             {
-                //
-                DenseWrap d_w = DenseWrap.Create(data);
-                SparseWrap s_w = SparseWrap.Create(data);
+                ResizeSet(ref set, offset * 2);
 
-                //
-                s_w[d_w[offset]] = 0;
-                d_w[offset] = 0;
-                //
-                return;
+                return Set(ref set, offset, value);
             }
-            //
-            throw new Exception($"Sparse and dense sets don't match at offset {offset}");
+            Debug.Assert(offset + 1 < set.Length);
+
+            return Write(set, offset, value);
         }
 
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int Get(long[] data, int offset)
+        public static int Set(int[] set, int offset, int value)
         {
-            return (int)(data[offset + 1] >> 32);
-        }
-
-        public static int Set(ref long[] data, int offset, int value)
-        {
-            //
-            SparseWrap sparse = SparseWrap.Create(data);
-
-            //
-            if (offset >= sparse.Length)
+            if (offset >= GetLength(set))
             {
-                //
-                ResizeSet(ref data, offset * 2);
-
-                //
-                return Set(ref data, offset, value);
+                throw new Exception();
             }
-            //
-            Debug.Assert(offset + 1 < data.Length);
+            Debug.Assert(offset + 1 < set.Length);
 
-            //
-            return sparse[offset] = value;
+            return Write(set, offset, value);
         }
 
-        public static int ResizeSet(ref long[] data, int size)
+        public static int SetUnsafe(int[] set, int offset, int value)
         {
-            //
-            Helpers.ResizeArray(ref data, size, true);
+            Debug.Assert(offset + 1 < set.Length);
 
-            //
-            return (int)(data[0] = ((long)(size - 1) << 32) + (int)data[0]);
+            return Write(set, offset, value);
+        }
+
+        public static int ResizeSet(ref int[] data, int size)
+        {
+            Helpers.ResizeArray(ref data, size * 2, false);
+
+            // Apply the new size to the header
+            // of the array while preserving
+            // the length of the dense set.
+            return Write(data, -1, size - 1);
         }
 
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static unsafe bool Contains(long[] data, Entity index)
+        public static bool Contains(int[] ptr, int index)
         {
-            //
-            int* ptr = (int*)Unsafe.AsPointer(ref data[1]);
+            // Check that the index
+            // is within the bounds of the
+            // sparse set.
+            if (index >= ptr[1]) return false;
 
-            // As long as the index is within
-            // the bounds of the array it's
-            // the call should be valid.
-            if (index >= ptr[-1]) return false;
+            // Get the dense index from
+            // the sparse set.
+            int d_i = ptr[(index + 1) * 2 + 1];
 
-            //
-            int d_i = ptr[index * 2 + 1];
+            // Check that the dense
+            // index is within the bounds
+            // of the dense set.
+            if (d_i >= ptr[0]) return false;
 
-            //
-            if (d_i >= ptr[-2]) return false;
-
-            //
-            int s_i = ptr[d_i * 2];
-
-            //
-            return s_i == index;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static unsafe bool Contains(int* ptr, Entity index)
-        {
-            //
-            if (index >= ptr[-1]) return false;
-
-            //
-            return ptr[ptr[index * 2 + 1] * 2] == index;
+            // Compare the value from
+            // the dense set with the
+            // index requested AKA
+            // dense[sparse[index]] == index
+            return ptr[(d_i + 1) * 2] == index;
         }
     }
 }
