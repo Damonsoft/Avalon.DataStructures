@@ -122,7 +122,7 @@ namespace Avalon.DataStructures.Entities
 
             // Overwrite the original set
             // from the caller with the data.
-            set = new SparseSet((int*)Unsafe.AsPointer(ref _internal[1]), _internal); ;
+            set = new SparseSet((int*)Unsafe.AsPointer(ref _internal[2]), _internal); ;
         }
     }
 
